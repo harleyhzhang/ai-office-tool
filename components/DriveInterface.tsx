@@ -5,8 +5,10 @@ import { LuFileText, LuFileSpreadsheet, LuFolder } from 'react-icons/lu';
 import { FaRegTrashAlt } from 'react-icons/fa';
 import { GoPlus } from 'react-icons/go';
 import { useFiles } from '@/context/FileContext';
-import DocEditor from '@/components/DocEditor';
-import SheetEditor from '@/components/SheetEditor';
+import dynamic from 'next/dynamic';
+
+const DocEditor = dynamic(() => import('@/components/DocEditor'), { ssr: false, loading: () => <p className="p-4 text-sm text-gray-500">Loading document editor…</p> });
+const SheetEditor = dynamic(() => import('@/components/SheetEditor'), { ssr: false, loading: () => <p className="p-4 text-sm text-gray-500">Loading spreadsheet editor…</p> });
 
 interface ItemToDelete {
   id: string;
@@ -128,18 +130,20 @@ export default function DriveInterface() {
                        <LuFolder className="w-4 h-4 text-gray-500" />
                        <span className="text-sm font-medium truncate max-w-[100px] text-gray-700">{folder.name}</span>
                      </div>
-                     <button onClick={()=>setDeleteConfirmModal({id:folder.id,name:folder.name,type:'folder'})} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity p-1 cursor-pointer"><FaRegTrashAlt className="w-3 h-3"/></button>
+                     <button aria-label={`Delete ${folder.name}`} onClick={()=>setDeleteConfirmModal({id:folder.id,name:folder.name,type:'folder'})} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity p-1 cursor-pointer"><FaRegTrashAlt className="w-3 h-3"/></button>
                    </div>
                   <div className="ml-4 mt-1 space-y-0.5">
                     {files.filter(f=>f.parentFolderId===folder.id).map(f=>{
                       const isActive = activeTab===f.id;
                       return (
                         <div key={f.id} className={`-mx-2 flex items-center justify-between px-2 py-1 rounded-lg group cursor-pointer ${isActive?'bg-[#C2E7FE]':'hover:bg-gray-100'}`}
-                          onClick={()=>openTab(f.id)} draggable onDragStart={(e)=>e.dataTransfer.setData('text/plain',f.id)}
+                          draggable onDragStart={(e)=>e.dataTransfer.setData('text/plain',f.id)}
                         >
+                          <button type="button" aria-label={`Open ${f.name}`} onClick={()=>openTab(f.id)} className="flex items-center flex-1 text-left min-w-0">
                           {f.type==='doc'?<LuFileText className="w-4 h-4 text-blue-500"/>:<LuFileSpreadsheet className="w-4 h-4 text-[#1DB044]"/>}
                           <span className="text-sm truncate ml-2 max-w-[100px]">{f.name}</span>
-                          <button onClick={(e)=>{e.stopPropagation();setDeleteConfirmModal({id:f.id,name:f.name,type:'file'});}} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity p-1 cursor-pointer"><FaRegTrashAlt className="w-3 h-3"/></button>
+                          </button>
+                          <button aria-label={`Delete ${f.name}`} onClick={(e)=>{e.stopPropagation();setDeleteConfirmModal({id:f.id,name:f.name,type:'file'});}} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity p-1 cursor-pointer"><FaRegTrashAlt className="w-3 h-3"/></button>
                         </div>
                       )})}
                     {/* inner items handled above; no extra dropzone */}
@@ -155,21 +159,21 @@ export default function DriveInterface() {
                       className={`-mx-2 flex items-center justify-between px-2 py-1 rounded-lg group transition-colors ${
                         isActive ? 'bg-[#C2E7FE] rounded-full' : 'hover:bg-gray-100'
                       }`}
-                      onClick={() => openTab(file.id)} draggable onDragStart={(e)=>e.dataTransfer.setData('text/plain',file.id)} onDrop={e=>{
+                      draggable onDragStart={(e)=>e.dataTransfer.setData('text/plain',file.id)} onDrop={e=>{
                         e.preventDefault();
                         const id=e.dataTransfer.getData('text/plain');
                         updateFileParent(id,null);
                       }} onDragOver={e=>e.preventDefault()}
                     >
-                      <div className="flex items-center space-x-2 flex-1">
+<button type="button" aria-label={`Open ${file.name}`} onClick={() => openTab(file.id)} className="flex items-center space-x-2 flex-1 text-left min-w-0">
                         {file.type === 'doc' ? (
                           <LuFileText className="w-4 h-4 text-blue-500" />
                         ) : (
                           <LuFileSpreadsheet className="w-4 h-4 text-[#1DB044]" />
                         )}
                         <span className={`text-sm font-medium truncate max-w-[100px] ${isActive ? 'text-[#004A76]' : 'text-gray-700'}`}>{file.name}</span>
-                      </div>
-                      <button onClick={(e)=>{e.stopPropagation();setDeleteConfirmModal({id:file.id,name:file.name,type:'file'});}} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity p-1 cursor-pointer"><FaRegTrashAlt className="w-3 h-3"/></button>
+                      </button>
+                      <button aria-label={`Delete ${file.name}`} onClick={(e)=>{e.stopPropagation();setDeleteConfirmModal({id:file.id,name:file.name,type:'file'});}} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity p-1 cursor-pointer"><FaRegTrashAlt className="w-3 h-3"/></button>
                     </div>
                   );
                 })}
@@ -183,7 +187,7 @@ export default function DriveInterface() {
         {/* Tab bar */}
         {openTabs.length > 0 && (
           <div className="bg-[#F8FAFD] border-b border-[#EEEEEC] flex items-center px-3">
-            <div className="flex space-x-1 overflow-x-auto">
+            <div role="tablist" aria-label="Open files" className="flex space-x-1 overflow-x-auto">
               {openTabs.map((tab) => (
                 <div
                   key={tab.id}
@@ -192,15 +196,17 @@ export default function DriveInterface() {
                       ? 'border-[#004A76] text-[#004A76]'
                       : 'border-transparent text-gray-600 hover:text-gray-800'
                   }`}
-                  onClick={() => setActiveTab(tab.id)}
                 >
+                  <button type="button" role="tab" aria-selected={activeTab === tab.id} onClick={() => setActiveTab(tab.id)} className="flex items-center space-x-2">
                   {tab.type === 'doc' ? (
                     <LuFileText className="w-3 h-3 text-blue-500" />
                   ) : (
                     <LuFileSpreadsheet className="w-3 h-3 text-[#1DB044]" />
                   )}
                   <span className="text-sm font-medium whitespace-nowrap">{tab.name}</span>
+                  </button>
                   <button
+                    aria-label={`Close ${tab.name}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       closeTab(tab.id);
@@ -236,9 +242,9 @@ export default function DriveInterface() {
 
       {/* Name File Modal */}
       {showNameFileModal && (
-        <div className="fixed inset-0 bg-black/10 flex items-center justify-center z-50 backdrop-blur-sm transition-all duration-300">
-          <div className="bg-white rounded-lg p-6 w-96 shadow-xl">
-            <h3 className="text-lg font-semibold mb-4 text-gray-800">{selectedType==='folder' ? 'Name your folder' : 'Name your file'}</h3>
+        <div className="fixed inset-0 bg-black/10 flex items-center justify-center z-50 backdrop-blur-sm transition-opacity duration-300">
+          <div role="dialog" aria-modal="true" aria-labelledby="name-dialog-title" className="bg-white rounded-lg p-6 w-96 shadow-xl">
+            <h3 id="name-dialog-title" className="text-lg font-semibold mb-4 text-gray-800">{selectedType==='folder' ? 'Name your folder' : 'Name your file'}</h3>
             <div className="flex items-center mb-4">
               {selectedType === 'doc' ? (
                 <LuFileText className="w-5 h-5 mr-3 text-blue-500" />
@@ -250,6 +256,7 @@ export default function DriveInterface() {
                <span className="text-gray-600 capitalize">{selectedType === 'doc' ? 'Document' : selectedType==='sheet' ? 'Spreadsheet' : 'Folder'}</span>
             </div>
             <input
+              aria-label={selectedType === 'folder' ? 'Folder name' : 'File name'}
               type="text"
               placeholder="Enter file name"
               value={newFileName}
@@ -283,11 +290,11 @@ export default function DriveInterface() {
 
       {/* Delete Confirmation Modal */}
       {deleteConfirmModal && (
-        <div className="fixed inset-0 bg-black/10 flex items-center justify-center z-50 backdrop-blur-sm transition-all duration-300">
-          <div className="bg-white rounded-lg p-6 w-96 shadow-xl">
+        <div className="fixed inset-0 bg-black/10 flex items-center justify-center z-50 backdrop-blur-sm transition-opacity duration-300">
+          <div role="dialog" aria-modal="true" aria-labelledby="delete-dialog-title" className="bg-white rounded-lg p-6 w-96 shadow-xl">
             <div className="flex items-center mb-4">
               <FaRegTrashAlt className="w-5 h-5 mr-3 text-red-500" />
-              <h3 className="text-lg font-semibold text-gray-800">Delete File</h3>
+              <h3 id="delete-dialog-title" className="text-lg font-semibold text-gray-800">Delete File</h3>
             </div>
             <p className="text-gray-600 mb-4">
               Are you sure you want to delete &ldquo;{deleteConfirmModal.name}&rdquo;? This action cannot be undone.
@@ -311,7 +318,8 @@ export default function DriveInterface() {
 
       {/* Click outside handler for dropdown */}
       {showNewFileDropdown && (
-        <div
+        <button
+          type="button" aria-label="Close new file menu"
           className="fixed inset-0 z-0"
           onClick={() => setShowNewFileDropdown(false)}
         />

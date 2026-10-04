@@ -2,7 +2,8 @@
 
 import { useChat } from '@ai-sdk/react';
 import { useFiles } from '@/context/FileContext';
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { executeWorkspaceEdit } from '@/lib/workspaceEdits';
 import { LuFileText, LuFileSpreadsheet } from 'react-icons/lu';
 import { RiRobot2Line } from 'react-icons/ri';
 import { MdOutlineChatBubbleOutline } from 'react-icons/md';
@@ -22,51 +23,15 @@ export default function ChatSidebar() {
   const [mode, setMode] = useState<'Agent' | 'Ask'>('Ask');
   const [showCopyTooltip, setShowCopyTooltip] = useState<string | null>(null);
 
-  const { messages, setMessages, input, setInput, handleInputChange, append, stop, status } = useChat({
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(copyTimer.current), []);
+
+  const { messages, setMessages, input, setInput, handleInputChange, append, stop, status, error } = useChat({
     sendExtraMessageFields: true,
     maxSteps: mode === 'Agent' ? 5 : 1,
     // Handle client-side execution of edit_doc tool
     async onToolCall({ toolCall }) {
-      if (toolCall.toolName === 'edit_doc') {
-        const { docId, text } = toolCall.args as { docId: string; text: string };
-        let file = files.find((f) => f.id === docId && f.type === 'doc');
-        if (!file) {
-          // fallback by name (case-insensitive)
-          file = files.find((f) => f.type === 'doc' && f.name.toLowerCase() === docId.toLowerCase());
-        }
-        // fallback: if only one doc in context, assume it's the target
-        if (!file) {
-          const docs = files.filter((f) => f.type === 'doc');
-          if (docs.length === 1) file = docs[0];
-        }
-        if (file) {
-          window.dispatchEvent(new CustomEvent('edit-doc', { detail: { id: docId, text } }));
-        } else {
-          console.warn('edit_doc: file not found or not a doc', docId);
-        }
-        // Return result, useChat will add it automatically
-        return 'done';
-      }
-      if (toolCall.toolName === 'edit_sheet') {
-        const { sheetId, cell, value } = toolCall.args as { sheetId: string; cell: string; value: string };
-        let file = files.find((f) => f.id === sheetId && f.type === 'sheet');
-        if (!file) {
-          file = files.find((f) => f.type === 'sheet' && f.name.toLowerCase() === sheetId.toLowerCase());
-        }
-        if (!file) {
-          const sheets = files.filter((f) => f.type === 'sheet');
-          if (sheets.length === 1) file = sheets[0];
-        }
-        if (file) {
-          window.dispatchEvent(new CustomEvent('edit-sheet', { detail: { id: sheetId, cell, value } }));
-        } else {
-          console.warn('edit_sheet: file not found or not a sheet', sheetId);
-        }
-        return 'done';
-      }
-    },
-    onError(error) {
-      console.error('Chat error:', error);
+      return executeWorkspaceEdit(window, files.filter(file => contextIds.includes(file.id)), toolCall.toolName, toolCall.args);
     },
   });
 
@@ -88,11 +53,11 @@ export default function ChatSidebar() {
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() && contextIds.length === 0) return;
+    if (status === 'submitted' || status === 'streaming' || (!input.trim() && contextIds.length === 0)) return;
 
     const selectedFiles = files.filter(f => contextIds.includes(f.id));
 
-    const tempId = `temp-${Date.now()}`;
+    const tempId = `temp-${crypto.randomUUID()}`;
     
     if (selectedFiles.length) {
       setMessageContexts(prev => ({ ...prev, [tempId]: contextIds }));
@@ -121,7 +86,8 @@ export default function ChatSidebar() {
     try {
       await navigator.clipboard.writeText(text);
       setShowCopyTooltip(messageId);
-      setTimeout(() => setShowCopyTooltip(null), 2000);
+      clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setShowCopyTooltip(null), 2000);
     } catch (err) {
       console.error('Failed to copy:', err);
     }
@@ -164,6 +130,7 @@ export default function ChatSidebar() {
     <div className="fixed right-0 top-0 h-screen bg-[#F8FAFD] flex flex-col p-2 border-l border-[#EEEEEC]" style={sidebarStyle}>
       <div className="mb-4 flex items-start">
         <button
+          aria-label="New chat"
           onClick={() => {
             setMessages([]);
             setMessageContexts({});
@@ -231,10 +198,12 @@ export default function ChatSidebar() {
                   );
                 }
                 if (state === 'result') {
+                  const result = part.toolInvocation.result;
+                  const failed = result && typeof result === 'object' && result.ok === false;
                   return (
-                    <div key={`${message.id}-${i}`} className="flex items-center text-xs text-green-600 mb-2">
-                      <FaRegCircleCheck className="w-3 h-3 mr-1" />
-                      {`${toolName} executed`}
+                    <div key={`${message.id}-${i}`} className={`flex items-center text-xs ${failed ? 'text-gray-700' : 'text-green-600'} mb-2`}>
+                      {!failed && <FaRegCircleCheck className="w-3 h-3 mr-1" />}
+                      {failed ? `${toolName}: ${result.message || 'Could not apply edit'}` : `${toolName} executed`}
                     </div>
                   );
                 }
@@ -278,6 +247,8 @@ export default function ChatSidebar() {
         ))}
       </div>
 
+      {error && <p role="status" className="p-2 text-sm text-gray-700">Could not complete the response. Please try again.</p>}
+
       {/* Input container */}
       <form onSubmit={onSubmit} className="mt-2">
         <div className="bg-white border border-gray-100 rounded-xl p-3 focus-within:ring-0 focus-within:border-blue-300">
@@ -285,6 +256,7 @@ export default function ChatSidebar() {
           <div className="flex items-center flex-wrap gap-1 mb-2 relative">
             <button
               type="button"
+              aria-label="Attach file context"
               onClick={() => setShowDropdown(!showDropdown)}
               className="flex items-center justify-center w-6 h-6 text-xs bg-[#F8FAFD] border border-gray-100 rounded-md flex-shrink-0 cursor-pointer"
             >
@@ -295,14 +267,14 @@ export default function ChatSidebar() {
               if (!f) return null;
               return (
                 <div key={id} className="flex items-center space-x-1 h-6 bg-[#F8FAFD] border border-gray-100 rounded-md px-2 text-xs group cursor-pointer">
-                  <div className="flex items-center w-3" onClick={() => toggleFile(id)}>
+                  <button type="button" aria-label={`Remove ${f.name} context`} className="flex items-center w-3" onClick={() => toggleFile(id)}>
                     {f.type === 'doc' ? (
                       <LuFileText className="w-3 h-3 text-blue-500 group-hover:hidden" />
                     ) : (
                       <LuFileSpreadsheet className="w-3 h-3 text-[#1DB044] group-hover:hidden" />
                     )}
-                    <button type="button" onClick={(e) => { e.stopPropagation(); toggleFile(id); }} className="hidden group-hover:block text-gray-400 hover:text-gray-600 text-xs cursor-pointer">×</button>
-                  </div>
+                    <span className="hidden group-hover:block text-gray-400 hover:text-gray-600 text-xs">×</span>
+                  </button>
                   <span className="max-w-[60px] truncate">{f.name}</span>
                 </div>
               );
@@ -316,6 +288,7 @@ export default function ChatSidebar() {
                 {files.map(file => (
                   <button
                     key={file.id}
+                    type="button"
                     onClick={() => toggleFile(file.id)}
                     className={`w-full flex items-center px-3 py-2 text-left hover:bg-gray-50 text-xs cursor-pointer ${contextIds.includes(file.id) ? 'bg-gray-100' : ''}`}
                   >
@@ -331,6 +304,7 @@ export default function ChatSidebar() {
             )}
           </div>
           <textarea
+            aria-label="Message"
             value={input}
             onChange={autoResize}
             onKeyDown={(e) => {
@@ -357,6 +331,7 @@ export default function ChatSidebar() {
                 <MdOutlineChatBubbleOutline className="absolute left-2 w-3 h-3 text-gray-500 pointer-events-none z-10" />
               )}
               <select
+                aria-label="Chat mode"
                 value={mode}
                 onChange={(e) => setMode(e.target.value as 'Agent' | 'Ask')}
                 className="text-xs text-gray-600 bg-gray-50 rounded-full pl-7 pr-6 py-0.5 appearance-none cursor-pointer hover:bg-gray-100 transition-colors"
@@ -369,9 +344,10 @@ export default function ChatSidebar() {
             
             {/* Send/Stop button */}
             <div className="flex items-center">
-              {status !== 'ready' ? (
+              {status === 'submitted' || status === 'streaming' ? (
                 <button
                   type="button"
+                  aria-label="Stop response"
                   onClick={stop}
                   className="w-6 h-6 bg-gray-400 hover:bg-gray-500 rounded-full flex items-center justify-center transition-colors"
                 >
@@ -379,12 +355,8 @@ export default function ChatSidebar() {
                 </button>
               ) : (
                 <button
-                  type="button"
-                  onClick={() => {
-                    const form = new Event('submit', { bubbles: true, cancelable: true });
-                    const formElement = document.querySelector('form');
-                    if (formElement) formElement.dispatchEvent(form);
-                  }}
+                  type="submit"
+                  aria-label="Send message"
                   disabled={!input.trim() && contextIds.length === 0}
                   className="w-6 h-6 bg-gray-400 hover:bg-gray-500 disabled:bg-gray-300 disabled:cursor-not-allowed rounded-full flex items-center justify-center transition-colors"
                 >
@@ -397,7 +369,7 @@ export default function ChatSidebar() {
       </form>
       {/* Global overlay to close @ dropdown */}
       {showDropdown && (
-        <div className="fixed inset-0 z-10" onClick={() => setShowDropdown(false)} />
+        <button type="button" aria-label="Close context menu" className="fixed inset-0 z-10" onClick={() => setShowDropdown(false)} />
       )}
 
     </div>
