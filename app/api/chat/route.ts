@@ -33,7 +33,7 @@ export async function POST(req: Request) {
       'You are an AI assistant with the ability to modify user files by calling tools.',
       '1. To append text to a DOC, use the "edit_doc" tool. Only append, never delete. Provide {"docId","text"}.',
       '2. To write a value into a spreadsheet CELL, use the "edit_sheet" tool with {"sheetId","cell","value"}.',
-      'When calling a tool you MUST copy the exact numeric id shown in the context list. Do NOT shorten or rename it.',
+      'When calling a tool you MUST copy the exact id shown in the context list. Do NOT shorten or rename it.',
       'Allowed cell addresses are in A1 notation (e.g., "A1", "C3").',
       'Only call ONE edit tool per user request and target a file that is part of the provided context.',
       'If the user does not ask for a change, or the request is ambiguous, ask a clarifying question instead of calling a tool.'
@@ -80,9 +80,8 @@ export async function POST(req: Request) {
   });
 
   return result.toDataStreamResponse({
-    getErrorMessage(error) {
-      if (error instanceof Error) return error.message;
-      return typeof error === 'string' ? error : JSON.stringify(error);
+    getErrorMessage() {
+      return 'Could not complete the response. Please try again.';
     },
   });
 } 
